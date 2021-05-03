@@ -1,0 +1,83 @@
+#!/bin/bash
+ver=1.0
+# Released into the Public Domain, see the file 'unlicense.txt'
+cpp_patch="96a97,113
+> __CTOR_LIST__ = .;
+> ___CTOR_LIST__ = .;
+> LONG (((__CTOR_END__ - __CTOR_LIST__) / 4) - 2)
+> KEEP (*(SORT (.ctors.*)))
+> KEEP (*(.ctors))
+> LONG (0x00000000)
+> __CTOR_END__ = .;
+> . = ALIGN (0x10);
+> 
+> __DTOR_LIST__ = .;
+> ___DTOR_LIST__ = .;
+> LONG (((__DTOR_END__ - __DTOR_LIST__) / 4) - 2)
+> KEEP (*(SORT (.dtors.*)))
+> KEEP (*(.dtors))
+> LONG (0x00000000)
+> __DTOR_END__ = .;
+> . = ALIGN (0x10);"
+
+echo "PSnoobSDK Installer By Alex Free v$ver"
+set -e
+
+if [ "$EUID" -ne 0 ]; then
+    echo "$USER does not have the required privilages to execute "$0", execute sudo "$0""
+    exit 1
+fi
+
+rm -rf /var/tmp/psn00bsdk_builder /usr/local/mipsel-unknown-elf
+mkdir /var/tmp/psn00bsdk_builder
+cd /var/tmp/psn00bsdk_builder
+
+dnf=$(command -v dnf)
+dnf=$(command -v apt)
+if [ ! -z "$dnf" ]; then
+    dnf install -y make texinfo mpfr-devel isl-devel gmp-devel libmpc-devel automake gcc gcc-c++ kernel-devel git wget
+elif [ ! -z "$apt" ]; then
+    apt install -y texinfo libmpfr-dev libcloog-issl-dev libgmp-dev libmpc-devel build-essential git wget
+else
+    read -p "Warning: dependencies for this system could not be automatically installed as it does not appear to use the apt or dnf package managers. Continue anyways? (Y/n): " -n 1 -r
+echo
+        if [ ! $REPLY = "y" ]; then
+            if [ ! $REPLY = "Y" ]; then
+                exit 1
+            fi
+fi
+
+wget -qO- https://ftp.gnu.org/gnu/binutils/binutils-2.31.1.tar.gz | tar zxvf -
+mkdir binutils-build
+cd binutils-build
+../binutils-2.31.1/configure --prefix=/usr/local/mipsel-unknown-elf --target=mipsel-unknown-elf --with-float=soft
+make -j4
+make install
+cd ../
+
+wget -qO- https://ftp.gnu.org/gnu/gcc/gcc-7.4.0/gcc-7.4.0.tar.gz | tar zxvf -
+mkdir gcc-build
+cd gcc-build
+../gcc-7.4.0/configure --disable-nls --disable-libada --disable-libssp --disable-libquadmath --disable-libstdc++-v3 --target=mipsel-unknown-elf --prefix=/usr/local/mipsel-unknown-elf --with-float=soft --enable-languages=c,c++ --with-gnu-as --with-gnu-ld
+make -j4
+make install
+cd ../
+cd /usr/local/mipsel-unknown-elf
+git clone https://github.com/lameguy64/psn00bsdk
+cd psn00bsdk/tools
+export PATH=/usr/local/mipsel-unknown-elf/bin:/usr/local/mipsel-unknown-elf/psn00bsdk/tools/bin:$PATH
+make
+make install
+cd ../
+cd libpsn00b
+make
+make install
+cd ../
+echo "$cpp_patch" | patch /usr/local/mipsel-unknown-elf/mipsel-unknown-elf/lib/ldscripts/elf32elmip.x
+cd examples
+make
+rm -rf /var/tmp/psn00bsdk_builder
+echo "The GCC 7.4.0 and Binutils 2.31.1 Toolchain has been installed to /usr/local/mipsel-unknown-elf. The PSn00bSDK is at /usr/local/mipsel-unknown-elf/psn00bsdk, the examples programs distributed with the SDK have been built successfully to test this setup. Run the below command first to use the SDK:"
+echo "export PATH=/usr/local/mipsel-unknown-elf/bin:/usr/local/mipsel-unknown-elf/psn00bsdk/tools/bin:$PATH"
+
+
