@@ -1,5 +1,5 @@
 #!/bin/bash
-ver=1.0
+ver=1.1
 # Released into the Public Domain, see the file 'unlicense.txt'
 cpp_patch="96a97,113
 > __CTOR_LIST__ = .;
@@ -21,63 +21,96 @@ cpp_patch="96a97,113
 > . = ALIGN (0x10);"
 
 echo "PSnoobSDK Installer By Alex Free v$ver"
-set -e
-
-if [ "$EUID" -ne 0 ]; then
-    echo "$USER does not have the required privilages to execute "$0", execute sudo "$0""
-    exit 1
-fi
-
-rm -rf /var/tmp/psn00bsdk_builder /usr/local/mipsel-unknown-elf
-mkdir /var/tmp/psn00bsdk_builder
-cd /var/tmp/psn00bsdk_builder
 
 dnf=$(command -v dnf)
-dnf=$(command -v apt)
-if [ ! -z "$dnf" ]; then
-    dnf install -y make texinfo mpfr-devel isl-devel gmp-devel libmpc-devel automake gcc gcc-c++ kernel-devel git wget
-elif [ ! -z "$apt" ]; then
-    apt install -y texinfo libmpfr-dev libcloog-issl-dev libgmp-dev libmpc-devel build-essential git wget
+apt=$(command -v apt)
+windows=$(uname)
+
+if echo "$windows" | grep -q "MINGW64"; then
+	echo "MSYS2 Windows system detected"
 else
-    read -p "Warning: dependencies for this system could not be automatically installed as it does not appear to use the apt or dnf package managers. Continue anyways? (Y/n): " -n 1 -r
+	if [ "$EUID" -ne 0 ]; then
+		echo "$USER does not have the required privilages to execute "$0", execute sudo "$0""
+		exit 1
+	fi
+fi
+
+cd "$(dirname "$0")"
+echo "Cleaning build directory..."
+rm -rf build
+mkdir build
+cd build
+
+if [ ! -z "$dnf" ]; then
+	echo "Detected the DNF file manager, configured to download Fedora dependencies"
+    dnf install -y make texinfo mpfr-devel isl-devel gmp-devel libmpc-devel automake gcc gcc-c++ kernel-devel git wget tinyxml2-devel
+elif [ ! -z "$apt" ]; then
+	echo "Detected the APT file manager, configured to download Debian/Ubuntu dependencies"
+    apt install -y texinfo libmpfr-dev libcloog-issl-dev libgmp-dev libmpc-dev build-essential git wget libtinyxml2-dev
+elif echo "$windows" | grep -q "MINGW64"; then 
+	echo "Detected the MSYS2 pacman package manager, configured to download MSYS2 dependencies"
+	pacman -S --noconfirm mingw-w64-x86_64-mpfr mingw-w64-x86_64-isl mingw-w64-x86_64-gmp mingw-w64-x86_64-mpc mingw-w64-x86_64-tinyxml2 automake git make wget   texinfo mingw-w64-x86_64-gcc
+else
+    read -p "Warning: dependencies for this system could not be automatically installed as it does not appear to use the apt, dnf, or msys2 pacman package managers. Continue anyways? (Y/n): " -n 1 -r
 echo
         if [ ! $REPLY = "y" ]; then
             if [ ! $REPLY = "Y" ]; then
                 exit 1
             fi
+		fi
 fi
 
-wget -qO- https://ftp.gnu.org/gnu/binutils/binutils-2.31.1.tar.gz | tar zxvf -
+set -e
+wget https://ftp.gnu.org/gnu/binutils/binutils-2.31.1.tar.gz 
+wget https://ftp.gnu.org/gnu/gcc/gcc-7.4.0/gcc-7.4.0.tar.gz
+echo "Extracting Binutils 2.31.1..."
+tar zxf binutils-2.31.1.tar.gz
+echo "Extracting GCC 7.4.0..."
+tar zxf gcc-7.4.0.tar.gz
+
+
 mkdir binutils-build
 cd binutils-build
-../binutils-2.31.1/configure --prefix=/usr/local/mipsel-unknown-elf --target=mipsel-unknown-elf --with-float=soft
+if echo "$windows" | grep -q "MINGW64"; then 
+	../binutils-2.31.1/configure --prefix=/usr/local/mipsel-unknown-elf --target=mipsel-unknown-elf --with-float=soft --build=x86_64-w64-mingw32
+else
+	../binutils-2.31.1/configure --prefix=/usr/local/mipsel-unknown-elf --target=mipsel-unknown-elf --with-float=soft
+fi
 make -j4
 make install
 cd ../
+rm -rf binutils-build
 
-wget -qO- https://ftp.gnu.org/gnu/gcc/gcc-7.4.0/gcc-7.4.0.tar.gz | tar zxvf -
 mkdir gcc-build
 cd gcc-build
-../gcc-7.4.0/configure --disable-nls --disable-libada --disable-libssp --disable-libquadmath --disable-libstdc++-v3 --target=mipsel-unknown-elf --prefix=/usr/local/mipsel-unknown-elf --with-float=soft --enable-languages=c,c++ --with-gnu-as --with-gnu-ld
+if echo "$windows" | grep -q "MINGW64"; then 
+	../gcc-7.4.0/configure --disable-nls --disable-libada --disable-libssp --disable-libquadmath --disable-libstdc++-v3 --target=mipsel-unknown-elf --prefix=/usr/local/mipsel-unknown-elf --with-float=soft --enable-languages=c,c++ --with-gnu-as --with-gnu-ld --build=x86_64-w64-mingw32
+else
+	../gcc-7.4.0/configure --disable-nls --disable-libada --disable-libssp --disable-libquadmath --disable-libstdc++-v3 --target=mipsel-unknown-elf --prefix=/usr/local/mipsel-unknown-elf --with-float=soft --enable-languages=c,c++ --with-gnu-as --with-gnu-ld
+fi
 make -j4
 make install
+rm -rf gcc-build
 cd ../
+
 cd /usr/local/mipsel-unknown-elf
 git clone https://github.com/lameguy64/psn00bsdk
 cd psn00bsdk/tools
 export PATH=/usr/local/mipsel-unknown-elf/bin:/usr/local/mipsel-unknown-elf/psn00bsdk/tools/bin:$PATH
+
 make
 make install
 cd ../
+
 cd libpsn00b
+if echo "$windows" | grep -q "MINGW64"; then 
+	export GCC_BASE=/usr/local/mipsel-unknown-elf
+fi
 make
 make install
 cd ../
 echo "$cpp_patch" | patch /usr/local/mipsel-unknown-elf/mipsel-unknown-elf/lib/ldscripts/elf32elmip.x
 cd examples
 make
-rm -rf /var/tmp/psn00bsdk_builder
 echo "The GCC 7.4.0 and Binutils 2.31.1 Toolchain has been installed to /usr/local/mipsel-unknown-elf. The PSn00bSDK is at /usr/local/mipsel-unknown-elf/psn00bsdk, the examples programs distributed with the SDK have been built successfully to test this setup. Run the below command first to use the SDK:"
 echo "export PATH=/usr/local/mipsel-unknown-elf/bin:/usr/local/mipsel-unknown-elf/psn00bsdk/tools/bin:$PATH"
-
-
